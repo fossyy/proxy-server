@@ -1,7 +1,9 @@
 package server
 
 import (
+	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"github.com/gorilla/websocket"
 	"io"
@@ -9,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 )
 
 type Server struct {
@@ -27,11 +30,8 @@ func (s *Server) handler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	client := http.Client{
-		CheckRedirect: func(r *http.Request, via []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
-	}
+	ctx, cancel := context.WithCancel(r.Context())
+	defer cancel()
 
 	proxyURL, err := url.Parse("http://" + s.proxyAddr + r.RequestURI)
 	if err != nil {
@@ -39,7 +39,7 @@ func (s *Server) handler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	proxyRequest, err := http.NewRequest(r.Method, proxyURL.String(), r.Body)
+	proxyRequest, err := http.NewRequestWithContext(ctx, r.Method, proxyURL.String(), r.Body)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -55,12 +55,11 @@ func (s *Server) handler(w http.ResponseWriter, r *http.Request) {
 	proxyRequest.Header.Set("X-Real-Ip", host)
 	proxyRequest.Header.Set("Server", "FPS")
 
-	proxyResponse, err := client.Do(proxyRequest)
+	proxyResponse, err := doRequst(proxyRequest)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	defer proxyResponse.Body.Close()
 
 	for key, value := range proxyResponse.Header {
 		for _, v := range value {
@@ -71,6 +70,25 @@ func (s *Server) handler(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(proxyResponse.StatusCode)
 
 	io.Copy(w, proxyResponse.Body)
+}
+
+func doRequst(req *http.Request) (*http.Response, error) {
+	client := http.Client{CheckRedirect: func(r *http.Request, via []*http.Request) error {
+		return http.ErrUseLastResponse
+	}}
+	for {
+		do, err := client.Do(req)
+		if err != nil {
+			if errors.Is(err, context.Canceled) {
+				fmt.Println("Cancel:", err)
+				return nil, err
+			}
+			fmt.Println("Error:", err)
+			time.Sleep(time.Second)
+			continue
+		}
+		return do, nil
+	}
 }
 
 func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
