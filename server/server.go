@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/gorilla/websocket"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -48,6 +49,12 @@ func (s *Server) handler(w http.ResponseWriter, r *http.Request) {
 		proxyRequest.Header[key] = value
 	}
 
+	host, _, _ := net.SplitHostPort(r.RemoteAddr)
+
+	proxyRequest.Header.Set("X-Forwarded-For", host)
+	proxyRequest.Header.Set("X-Real-Ip", host)
+	proxyRequest.Header.Set("Server", "FPS")
+
 	proxyResponse, err := client.Do(proxyRequest)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -60,7 +67,7 @@ func (s *Server) handler(w http.ResponseWriter, r *http.Request) {
 			w.Header().Add(key, v)
 		}
 	}
-	w.Header().Add("Server", "FPSv1")
+	w.Header().Add("Server", "FPS")
 	w.WriteHeader(proxyResponse.StatusCode)
 
 	io.Copy(w, proxyResponse.Body)
