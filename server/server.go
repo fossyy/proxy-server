@@ -3,7 +3,6 @@ package server
 import (
 	"context"
 	"crypto/tls"
-	"errors"
 	"fmt"
 	"github.com/gorilla/websocket"
 	"io"
@@ -11,7 +10,6 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-	"time"
 )
 
 type Server struct {
@@ -73,22 +71,13 @@ func (s *Server) handler(w http.ResponseWriter, r *http.Request) {
 }
 
 func doRequst(req *http.Request) (*http.Response, error) {
-	client := http.Client{CheckRedirect: func(r *http.Request, via []*http.Request) error {
-		return http.ErrUseLastResponse
-	}}
-	for {
-		do, err := client.Do(req)
-		if err != nil {
-			if errors.Is(err, context.Canceled) {
-				fmt.Println("Cancel:", err)
-				return nil, err
-			}
-			fmt.Println("Error:", err)
-			time.Sleep(time.Second)
-			continue
-		}
-		return do, nil
+	client := http.DefaultTransport
+	resp, err := client.RoundTrip(req)
+	if err != nil {
+		return nil, err
 	}
+	defer resp.Body.Close()
+	return resp, nil
 }
 
 func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
